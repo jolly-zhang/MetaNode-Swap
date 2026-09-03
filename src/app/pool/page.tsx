@@ -2,25 +2,15 @@
 
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import DataTable, { type Column } from "@/app/components/DataTable";
-import Page from "@/app/components/Page";
-import PaginationBar, { DEFAULT_PAGE_SIZE } from "@/app/components/Pagination";
-import usePoolContract from "@/app/hooks/usePoolContract";
-import PoolTokenBalance from "@/app/components/pollTokenBalance";
-import { TickPrice, TickPriceRange } from "@/app/components/tickPrice";
-
-type PoolRow = {
-  id: string;
-  pool: string;
-  token0: string;
-  token1: string;
-  fee: string;
-  tickLower: number;
-  tickUpper: number;
-  tick: number;
-  sqrtPriceX96: bigint;
-  liquidity: string;
-};
+import DataTable, { type Column } from "@/components/DataTable";
+import Page from "@/components/Page";
+import PaginationBar, { DEFAULT_PAGE_SIZE } from "@/components/Pagination";
+import usePoolContract from "@/hooks/usePoolContract";
+import PoolTokenBalance from "@/components/pollTokenBalance";
+import { TickPrice, TickPriceRange } from "@/components/tickPrice";
+import usePositionContract from "@/hooks/usePositionContract";
+import { PoolRow } from "@/types";
+import AddPoolDialog from "@/components/AddPoolDialog";
 
 const columns: Column<PoolRow>[] = [
   {
@@ -32,7 +22,7 @@ const columns: Column<PoolRow>[] = [
   },
   {
     header: "Fee tier",
-    cell: (row) => row.fee,
+    cell: (row) => `${Number(row.fee) / 10_000}%`,
   },
   {
     header: "Set price range",
@@ -60,16 +50,27 @@ const columns: Column<PoolRow>[] = [
   },
   {
     header: "Liquidity",
-    headerClassName: "text-right",
-    cellClassName: "text-right",
     cell: (row) => row.liquidity,
   },
+  {
+    header: "Action",
+    headerClassName: "text-center",
+    cellClassName: "text-right",
+    cell: (row) => (
+      <Button variant="outline" onClick={() => addMyPosition(row.token0, row.token1)}>Add My Position</Button>
+    ),
+  }
 ];
+const addMyPosition = (token0: string, token1: string) => {
+  console.log("addMyPosition", token0, token1);
+}
 
 export default function PoolPage() {
-  const { poolData, error, isError, isLoading, isEmpty } = usePoolContract();
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE);
+  const { poolData, error, isError, isLoading, isEmpty, refetch } = usePoolContract();
+  const { myPositionData, isLoading: isPositionLoading, isError: isPositionError, isEmpty: isPositionEmpty } = usePositionContract();
+  console.log(poolData, myPositionData, error, isError, isLoading)
+
+  //初始化池子列表
   const rows: PoolRow[] = poolData.map((pool) => ({
     id: `${pool.pool}-${pool.index}`,
     pool: pool.pool,
@@ -83,6 +84,8 @@ export default function PoolPage() {
     liquidity: pool.liquidity.toString(),
   }));
 
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE);
   const total = rows.length;//总条数
   const totalPages = Math.max(1, Math.ceil(total / pageSize));//总页数
   const pagedRows = rows.slice((page - 1) * pageSize, page * pageSize);//分页后的数据
@@ -91,12 +94,16 @@ export default function PoolPage() {
     setPage(1);
   };
 
-  const [poolType,setPoolType] = useState<string>("addPool");
+  const [poolType, setPoolType] = useState<string>("addPool");
+  const [openAddPoolDialog, setOpenAddPoolDialog] = useState(false);
+  const [openAddMyPositionDialog, setOpenAddMyPositionDialog] = useState(false);
+
   const addMyPool = () => {
     console.log("addMyPool");
   }
   const addPool = () => {
     setPoolType("addPool")
+    setOpenAddPoolDialog(true);
     console.log("addPool");
   }
 
@@ -105,20 +112,22 @@ export default function PoolPage() {
       setPage(totalPages);//如果当前页数大于总页数，则设置为总页数
     }
   }, [page, totalPages]);
+
   return (
     <Page
       title="Pool"
-      toolbar= {poolType === 'addPool' ? 'Pool List' : 'My Position'}
+      toolbar={poolType === 'addPool' ? 'Pool List' : 'My Position'}
       actions={
         poolType === 'addPool' ?
           <>
             <Button variant="outline" onClick={() => setPoolType("myPosition")}>My Position</Button>
             <Button variant="default" onClick={() => addPool()}>Add Pool</Button>
+            
           </>
-          : 
+          :
           <>
-          <Button variant="outline" onClick={() => setPoolType("addPool")}>Pool List</Button>
-          <Button variant="default" onClick={() => addMyPool()}>Add</Button>
+            <Button variant="outline" onClick={() => setPoolType("addPool")}>Pool List</Button>
+            <Button variant="default" onClick={() => addMyPool()}>Add</Button>
           </>
       }
     >
@@ -143,6 +152,13 @@ export default function PoolPage() {
           />
         </>
       )}
+      <AddPoolDialog
+        open={openAddPoolDialog}
+        onOpenChange={setOpenAddPoolDialog}
+        onCreated={() => {
+          void refetch();
+        }}
+      />
     </Page>
   );
 }

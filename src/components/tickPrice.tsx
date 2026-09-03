@@ -1,8 +1,8 @@
 "use client";
 
 import { TickMath } from "@uniswap/v3-sdk";
-import usePoolTokenMeta from "@/app/hooks/usePoolTokenMeta";
-import { sqrtPriceX96ToPrice, tickToPrice } from "@/app/utils/sqrtPrice";
+import usePoolTokenMeta from "@/hooks/usePoolTokenMeta";
+import { sqrtPriceX96ToPrice, tickToPrice } from "@/utils/sqrtPrice";
 
 type TickPriceProps = {
   pool: string;

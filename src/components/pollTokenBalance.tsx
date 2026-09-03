@@ -1,7 +1,7 @@
 "use client";
 
 import { formatUnits } from "viem";
-import usePoolTokenMeta from "@/app/hooks/usePoolTokenMeta";
+import usePoolTokenMeta from "@/hooks/usePoolTokenMeta";
 
 type PoolTokenPairProps = {
   pool: string;

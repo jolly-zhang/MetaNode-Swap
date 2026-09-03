@@ -1,6 +1,6 @@
 "use client";
 
-import { useAccount, useReadContract } from "wagmi";
+import {useReadContract } from "wagmi";
 import { zeroAddress } from "viem";
 import { POSITION_MANAGER_ABI } from "../contracts/positionAbi";
 import { PositionManagerAddress } from "../utils/env";
@@ -10,7 +10,6 @@ type UsePositionContractArgs = {
 };
 
 const usePositionContract = ({ enabled = true }: UsePositionContractArgs = {}) => {
-  const { address } = useAccount();
 
   const { data, error, isError, isLoading } = useReadContract({
     address: PositionManagerAddress,
@@ -21,7 +20,7 @@ const usePositionContract = ({ enabled = true }: UsePositionContractArgs = {}) =
     },
   });
 
-  const allPositions = data ?? [];
+  const myPositionData = data ?? [];
   // const positionData = address
   //   ? allPositions.filter(
   //       (position) => position.owner.toLowerCase() === address.toLowerCase(),
@@ -30,11 +29,11 @@ const usePositionContract = ({ enabled = true }: UsePositionContractArgs = {}) =
 
   return {
     // positionData,
+    myPositionData,
     error,
     isError,
     isLoading,
     isEmpty: !isLoading && !isError ,
-    isDisconnected: !address,
   };
 };
 

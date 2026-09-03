@@ -17,7 +17,11 @@ export const metadata: Metadata = {
   description: "Metanode Swap - 一个去中心化的跨链代币交换协议...",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
   return (
     <html
       lang="en"
