@@ -1,7 +1,6 @@
 "use client";
 
 import { useReadContract } from "wagmi";
-import { sepolia } from "wagmi/chains";
 import { zeroAddress } from "viem";
 import { POOL_MANAGER_ABI } from "../contracts/poolAbi";
 import { SwapContractAddress } from "../utils/env";
