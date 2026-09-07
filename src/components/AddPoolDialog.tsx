@@ -8,9 +8,9 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, } from "@/components/ui/select"
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage, } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, } from "@/components/ui/select"
 import { FACTORY_ABI } from "@/contracts/addPoolAbi";
 import { SwapContractAddress } from "@/utils/env";
 import { TickMath } from '@uniswap/v3-sdk';
@@ -129,6 +129,7 @@ export default function AddPoolDialog({
   }, [open, reset]);
   //点击提交交易
   const onSubmit = async (values: FormValues) => {
+    console.log("values", values);
     if (!address) {
       alert("请先连接钱包");
       return;

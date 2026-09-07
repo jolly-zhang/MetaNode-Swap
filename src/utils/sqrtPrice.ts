@@ -40,3 +40,47 @@ export const tickToPrice = (
   const sqrtPriceX96 = BigInt(TickMath.getSqrtRatioAtTick(tick).toString());
   return sqrtPriceX96ToPrice(sqrtPriceX96, decimals0, decimals1);
 };
+
+export const getPositionTokenAmounts = (
+  liquidity: string | bigint,
+  tickLower: number,
+  tickUpper: number,
+  currentTick: number,
+) => {
+  if (tickLower >= tickUpper) {
+    return { amount0: BigInt(0), amount1: BigInt(0) };
+  }
+
+  const liq = BigInt(liquidity.toString());
+  if (liq <= BigInt(0)) {
+    return { amount0: BigInt(0), amount1: BigInt(0) };
+  }
+
+  const sqrtRatioA = BigInt(TickMath.getSqrtRatioAtTick(tickLower).toString());
+  const sqrtRatioB = BigInt(TickMath.getSqrtRatioAtTick(tickUpper).toString());
+  const sqrtRatio = BigInt(TickMath.getSqrtRatioAtTick(currentTick).toString());
+
+  if (currentTick < tickLower) {
+    return { amount0: getAmount0Delta(sqrtRatioA, sqrtRatioB, liq), amount1: BigInt(0) };
+  }
+  if (currentTick < tickUpper) {
+    return {
+      amount0: getAmount0Delta(sqrtRatio, sqrtRatioB, liq),
+      amount1: getAmount1Delta(sqrtRatioA, sqrtRatio, liq),
+    };
+  }
+  return { amount0: BigInt(0), amount1: getAmount1Delta(sqrtRatioA, sqrtRatioB, liq) };
+};
+
+const getAmount0Delta = (sqrtA: bigint, sqrtB: bigint, liquidity: bigint) => {
+  const [lower, upper] = sqrtA > sqrtB ? [sqrtB, sqrtA] : [sqrtA, sqrtB];
+  if (lower === BigInt(0)) return BigInt(0);
+  const numerator1 = liquidity << BigInt(96);
+  const numerator2 = upper - lower;
+  return (numerator1 * numerator2) / upper / lower;
+};
+
+const getAmount1Delta = (sqrtA: bigint, sqrtB: bigint, liquidity: bigint) => {
+  const [lower, upper] = sqrtA > sqrtB ? [sqrtB, sqrtA] : [sqrtA, sqrtB];
+  return (liquidity * (upper - lower)) / (BigInt(1) << BigInt(96));
+};

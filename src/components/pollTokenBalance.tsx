@@ -28,7 +28,7 @@ export default function PoolTokenBalance({
 
   return (
     <div>
-      {formatToken(balance0, symbol0, decimals0)} /{" "}
+      {formatToken(balance0, symbol0, decimals0)} /
       {formatToken(balance1, symbol1, decimals1)}
     </div>
   );

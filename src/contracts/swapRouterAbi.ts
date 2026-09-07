@@ -1,40 +1,46 @@
-export const SWAP_ROUTER_ABI = [
+export const quoterAbi = [
   {
-    inputs: [
+    "inputs": [
       {
-        name: "params",
-        type: "tuple",
-        components: [
-          { name: "tokenIn", type: "address" },
-          { name: "tokenOut", type: "address" },
-          { name: "indexPath", type: "uint32[]" },
-          { name: "amountIn", type: "uint256" },
-          { name: "sqrtPriceLimitX96", type: "uint160" },
+        "components": [
+          { "internalType": "address", "name": "tokenIn", "type": "address" },
+          { "internalType": "address", "name": "tokenOut", "type": "address" },
+          { "internalType": "uint32[]", "name": "indexPath", "type": "uint32[]" },
+          { "internalType": "uint256", "name": "amountIn", "type": "uint256" },
+          { "internalType": "uint160", "name": "sqrtPriceLimitX96", "type": "uint160" }
         ],
-      },
+        "internalType": "struct IQuoter.QuoteExactInputParams",
+        "name": "params",
+        "type": "tuple"
+      }
     ],
-    name: "quoteExactInput",
-    outputs: [{ name: "amountOut", type: "uint256" }],
-    stateMutability: "nonpayable",
-    type: "function",
+    "name": "quoteExactInput",
+    "outputs": [
+      { "internalType": "uint256", "name": "amountOut", "type": "uint256" }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
   },
   {
-    inputs: [
+    "inputs": [
       {
-        name: "params",
-        type: "tuple",
-        components: [
-          { name: "tokenIn", type: "address" },
-          { name: "tokenOut", type: "address" },
-          { name: "indexPath", type: "uint32[]" },
-          { name: "amount", type: "uint256" },
-          { name: "sqrtPriceLimitX96", type: "uint160" },
+        "components": [
+          { "internalType": "address", "name": "tokenIn", "type": "address" },
+          { "internalType": "address", "name": "tokenOut", "type": "address" },
+          { "internalType": "uint32[]", "name": "indexPath", "type": "uint32[]" },
+          { "internalType": "uint256", "name": "amount", "type": "uint256" },
+          { "internalType": "uint160", "name": "sqrtPriceLimitX96", "type": "uint160" }
         ],
-      },
+        "internalType": "struct IQuoter.QuoteExactOutputParams",
+        "name": "params",
+        "type": "tuple"
+      }
     ],
-    name: "quoteExactOutput",
-    outputs: [{ name: "amountIn", type: "uint256" }],
-    stateMutability: "nonpayable",
-    type: "function",
-  },
+    "name": "quoteExactOutput",
+    "outputs": [
+      { "internalType": "uint256", "name": "amountIn", "type": "uint256" }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  }
 ] as const;
