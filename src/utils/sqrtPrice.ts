@@ -8,7 +8,7 @@ export const formatPrice = (price: number) => {
   if (price < 1000) return price.toFixed(4);
   return price.toFixed(2);
 };
-
+//sqrtPriceX96转换成价格
 export const sqrtPriceX96ToPrice = (
   sqrtPriceX96: bigint,
   decimals0: number,
@@ -31,7 +31,7 @@ export const sqrtPriceX96ToPrice = (
   const scaled = numerator / denominator;
   return formatPrice(Number(scaled) / 1e18);
 };
-
+//tick先转换成sqrtPriceX96，再转换成价格
 export const tickToPrice = (
   tick: number,
   decimals0: number,

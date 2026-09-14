@@ -12,7 +12,7 @@ import { POSITION_MANAGER_ABI } from "@/contracts/positionAbi";
 import { PositionManagerAddress } from "@/utils/env";
 import { usePoolContract, usePositionContract } from "@/hooks/usePoolContract";
 
-const TX_GAS_LIMIT = BigInt(3_000_000);
+const TX_GAS_LIMIT = BigInt(1_000_000);
 
 export default function PositionActions({ positionId }: { positionId: number }) {
   const { data: connectorClient } = useConnectorClient();

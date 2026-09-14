@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useConnectorClient } from "wagmi";
 import { Button } from "@/components/ui/button";
 import DataTable, { type Column } from "@/components/DataTable";
 import Page from "@/components/Page";
@@ -73,11 +74,6 @@ const positionColumns: Column<PositionInfo>[] = [
     cellClassName: "font-medium",
     cell: (row) => (row.id.toString()),
   },
-  // {
-  //   header: "Owner",
-  //   cellClassName: "font-medium",
-  //   cell: (row) => (row.owner),
-  // },
   {
     header: "Token0/Token1",
     cellClassName: "font-medium",
@@ -151,9 +147,11 @@ const positionColumns: Column<PositionInfo>[] = [
 ];
 
 export default function PoolPage() {
+  const { data: connectorClient } = useConnectorClient();
+  const address = connectorClient?.account.address;
   const { poolData, error, isError, isLoading, isEmpty, refetch } = usePoolContract();
-  const { positionData, error: positionError, isError: positionIsError, isLoading: positionIsLoading, isEmpty: positionIsEmpty, refetch: positionRefetch } = usePositionContract();
-  console.log(poolData, positionData, positionError, positionIsError, positionIsLoading)
+  const { positionData, error: positionError, isError: positionIsError, isLoading: positionIsLoading, refetch: positionRefetch } = usePositionContract();
+  // console.log(poolData, positionData)
 
   //初始化池子列表
   const rows: PoolRow[] = poolData.map((pool) => ({
@@ -169,7 +167,7 @@ export default function PoolPage() {
     liquidity: pool.liquidity.toString(),
     index: Number(pool.index),
   }));
-
+//所有的仓位列表
   const positionRows: PositionInfo[] = positionData.map((position) => ({
     id: position.id,
     owner: position.owner,
@@ -185,19 +183,26 @@ export default function PoolPage() {
     feeGrowthInside0LastX128: position.feeGrowthInside0LastX128,
     feeGrowthInside1LastX128: position.feeGrowthInside1LastX128,
   }));
+//自己的仓位列表
+  const myPositionRows: PositionInfo[] = address
+    ? positionRows.filter(
+        (position) => position.owner.toLowerCase() === address.toLowerCase(),
+      )
+    : [];
 
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE);
-  const total = rows.length;//总条数
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));//总页数
-  const pagedRows = rows.slice((page - 1) * pageSize, page * pageSize);//分页后的数据
-  const positionPagedRows = positionRows.slice((page - 1) * pageSize, page * pageSize);//分页后的数据
+  const [poolType, setPoolType] = useState<string>("addPool");
+  const isPoolList = poolType === "addPool";
+  const total = isPoolList ? rows.length : myPositionRows.length;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const pagedRows = rows.slice((page - 1) * pageSize, page * pageSize);
+  const positionPagedRows = myPositionRows.slice((page - 1) * pageSize, page * pageSize);
   const handlePageSizeChange = (size: number) => {
     setPageSize(size);
     setPage(1);
   };
 
-  const [poolType, setPoolType] = useState<string>("addPool");
   const [openAddPoolDialog, setOpenAddPoolDialog] = useState(false);
   const [openAddMyPositionDialog, setOpenAddMyPositionDialog] = useState(false);
   const [selectedPool, setSelectedPool] = useState<PoolRow | null>(null);
@@ -228,7 +233,7 @@ export default function PoolPage() {
         toolbar="Pool List"
         actions={
           <>
-            <Button variant="outline" onClick={() => setPoolType("myPosition")}>My Position</Button>
+            <Button variant="outline" onClick={() => { setPage(1); setPoolType("myPosition"); }}>My Position</Button>
             <Button variant="default" onClick={() => addPool()}>Add Pool</Button>
           </>
         }
@@ -282,20 +287,23 @@ export default function PoolPage() {
         toolbar="My Position"
         actions={
           <>
-            <Button variant="outline" onClick={() => setPoolType("addPool")}>Pool List</Button>
+            <Button variant="outline" onClick={() => { setPage(1); setPoolType("addPool"); }}>Pool List</Button>
           </>
         }
       >
-        {positionIsLoading && <p>正在读取池子列表…</p>}
+        {positionIsLoading && <p>正在读取仓位列表…</p>}
         {positionIsError && (
           <p className="text-destructive">
             读取失败：
-            {error?.message ??
-              "getAllPools 调用 revert。请确认 .env.local 里是 PoolManager 合约地址，并已在 Sepolia 上部署。"}
+            {positionError?.message ??
+              "getAllPositions 调用 revert。请确认 .env.local 里是 PositionManager 合约地址。"}
           </p>
         )}
-        {positionIsEmpty && <p>当前还没有池子，先创建一个 Pool。</p>}
-        {!positionIsLoading && !positionIsError && (
+        {!address && <p>请先连接钱包查看自己的仓位。</p>}
+        {address && !positionIsLoading && !positionIsError && myPositionRows.length === 0 && (
+          <p>当前钱包还没有仓位，请先在 Pool List 里 Add My Position。</p>
+        )}
+        {address && !positionIsLoading && !positionIsError && myPositionRows.length > 0 && (
           <>
             <DataTable columns={positionColumns} data={positionPagedRows} rowKey={(row) => row.id.toString()} />
             <PaginationBar

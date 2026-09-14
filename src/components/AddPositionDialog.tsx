@@ -21,7 +21,6 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { ControllerRenderProps } from "react-hook-form";
 import { z } from "zod";
-import { Coins, Lock, Pencil, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
@@ -43,38 +42,14 @@ import { sqrtPriceX96ToPrice, tickToPrice } from "@/utils/sqrtPrice";
 
 const formSchema = z
     .object({
-        amount0: z.string(),
-        amount1: z.string(),
+        amount0: z.string().refine((val)=>Number(val) > 0, '代币数量不能为0'),
+        amount1: z.string().refine((val)=>Number(val) > 0, '代币数量不能为0'),
     })
-    .refine((values) => Number(values.amount0) > 0 || Number(values.amount1) > 0, {
-        message: "至少填写一种代币数量",
-        path: ["amount0"],
-    });
 
 type FormValues = z.infer<typeof formSchema>;
 
-const MINT_GAS_LIMIT = BigInt(3_000_000);
+const MINT_GAS_LIMIT = BigInt(1_000_000);
 
-const shortAddress = (value: string) =>
-    `${value.slice(0, 10)}...${value.slice(-8)}`;
-
-const Badge = ({
-    children,
-    tone = "outline",
-}: {
-    children: ReactNode;
-    tone?: "outline" | "default";
-}) => (
-    <span
-        className={
-            tone === "default"
-                ? "ml-auto rounded-full bg-primary px-2 py-0.5 text-xs text-primary-foreground"
-                : "ml-auto rounded-full border px-2 py-0.5 text-xs text-muted-foreground"
-        }
-    >
-        {children}
-    </span>
-);
 
 type AddPositionDialogProps = {
     open: boolean;
@@ -89,12 +64,12 @@ export default function AddPositionDialog({
     pool,
     onCreated,
 }: AddPositionDialogProps) {
+
     const { data: connectorClient } = useConnectorClient();
     const address = connectorClient?.account.address;
     const { writeContractAsync, isPending, reset } = useWriteContract();
     const [hash, setHash] = useState<Hash>();
     const [submitError, setSubmitError] = useState<string | null>(null);
-
     const { symbol0, symbol1, decimals0, decimals1 } = usePoolTokenMeta({
         pool: pool?.pool ?? "",
         token0: pool?.token0 ?? "",
@@ -148,7 +123,7 @@ export default function AddPositionDialog({
             amount1: "",
         },
     });
-
+    //等待交易确认
     const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({
         hash,
         query: { enabled: Boolean(hash) },
@@ -167,6 +142,7 @@ export default function AddPositionDialog({
         onCreated?.();
         onOpenChange(false);
     }, [isSuccess, onCreated, onOpenChange]);
+
     //授权代币
     const approveIfNeeded = async (
         token: Address,
@@ -182,6 +158,7 @@ export default function AddPositionDialog({
         });
         await waitForTransactionReceipt(config, { hash: approveHash });
     };
+
     //创建流动性
     const onSubmit = async (values: FormValues) => {
         setSubmitError(null);
@@ -211,16 +188,11 @@ export default function AddPositionDialog({
             setSubmitError("请输入有效的代币数量");
             return;
         }
-        if (amount0Desired === BigInt(0) && amount1Desired === BigInt(0)) {
-            setSubmitError("至少填写一种代币数量");
-            return;
-        }
-
         const latest = await walletReads.refetch();
-        const balance0 = latest.data?.[0]?.result ?? wallet0;
-        const balance1 = latest.data?.[1]?.result ?? wallet1;
-        const latestAllowance0 = latest.data?.[2]?.result ?? allowance0;
-        const latestAllowance1 = latest.data?.[3]?.result ?? allowance1;
+        const balance0 = latest.data?.[0]?.result ?? wallet0;//余额
+        const balance1 = latest.data?.[1]?.result ?? wallet1;//余额
+        const latestAllowance0 = latest.data?.[2]?.result ?? allowance0;//授权额度
+        const latestAllowance1 = latest.data?.[3]?.result ?? allowance1;//授权额度
         if (balance0 == null || balance1 == null) {
             setSubmitError("正在读取钱包余额，请稍后再试");
             return;
@@ -239,8 +211,10 @@ export default function AddPositionDialog({
         }
 
         try {
+            //先授权代币
             await approveIfNeeded(pool.token0 as Address, amount0Desired, latestAllowance0);
             await approveIfNeeded(pool.token1 as Address, amount1Desired, latestAllowance1);
+            //创建流动性接口
             const txHash = await writeContractAsync({
                 address: PositionManagerAddress,
                 abi: POSITION_MANAGER_ABI,
@@ -375,20 +349,18 @@ export default function AddPositionDialog({
                             <div>
                                 Current price: {currentPrice}
                             </div>
-                         
-
                             {submitError && <p className="text-sm text-destructive">{submitError}</p>}
-                            {hash && (
-                                <p className="break-all text-xs text-muted-foreground">交易哈希：{hash}</p>
-                            )}
-
                             <div className="flex gap-2">
                                 <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>
                                     取消
                                 </Button>
-                                <Button type="submit" className="flex-1" disabled={busy || !address}>
+                                {address?
+                                <Button type="submit" className="flex-1" disabled={busy}>
                                     {isConfirming ? "确认中…" : isPending ? "签名中…" : "创建"}
                                 </Button>
+                                :
+                                    <p className="text-red-500">请先连接钱包</p>
+                                }
                             </div>
                         </form>
                     </Form>

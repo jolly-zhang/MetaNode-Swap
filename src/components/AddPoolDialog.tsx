@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useConnectorClient, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
-import { type Address, getAddress, type Hash, zeroAddress } from "viem";
+import { encodeSqrtRatioX96, nearestUsableTick, TickMath } from "@uniswap/v3-sdk"
+import { useConnectorClient, useReadContracts, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import { type Address, erc20Abi, getAddress, type Hash, isAddress, parseUnits, zeroAddress } from "viem";
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
@@ -13,9 +14,7 @@ import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, For
 import { Input } from "@/components/ui/input"
 import { FACTORY_ABI } from "@/contracts/addPoolAbi";
 import { SwapContractAddress } from "@/utils/env";
-import { TickMath } from '@uniswap/v3-sdk';
 import type { ControllerRenderProps } from "react-hook-form"
-
 // 费率选项
 const FEE_OPTIONS = [
   { value: 500, label: "0.05% (稳定币对)" },
@@ -38,10 +37,20 @@ const formSchema = z.object({
     .regex(/^\d*\.?\d*$/, "请输入有效数字")
     .refine((val) => parseFloat(val) > 0, "价格必须大于 0")
     .refine((val) => parseFloat(val) < 1e12, "价格不能超过 1e12"),
-  // 可选：自定义 tick 范围（高级用户）.optional()表示可选
-  tickLower: z.string().optional(),
-  tickUpper: z.string().optional()
-})
+  tickLower: z.string()
+    .regex(/^\d*\.?\d*$/, "请输入有效数字")
+    .refine((val) => parseFloat(val) > 0, "最低价格必须大于 0"),
+  tickUpper: z.string()
+    .regex(/^\d*\.?\d*$/, "请输入有效数字")
+    .refine((val) => parseFloat(val) > 0, "最高价格必须大于 0"),
+}).refine((data) => parseFloat(data.tickLower) < parseFloat(data.tickUpper), {
+  message: "最高价格必须大于最低价格",
+  path: ["tickLower"],
+}).refine((data) => data.token0.trim().toLowerCase() !== data.token1.trim().toLowerCase(), {
+  message: '两个代币地址不能相同',
+  path: ['token1'],
+});
+
 // 表单值类型
 type FormValues = z.infer<typeof formSchema>
 
@@ -58,20 +67,33 @@ function getTickSpacing(fee: number): number {
       return 60
   }
 }
-//计算tick
-function calculateTicks(price: number, fee: number, priceRangePercent: number = 0.1) {
-  const tickSpacing = getTickSpacing(fee)
-  // 基础 tick（从价格计算）
-  const tick = Math.floor(Math.log(price) / Math.log(1.0001))
-  // 计算上下范围
-  const tickRange = Math.floor(Math.log(1 + priceRangePercent) / Math.log(1.0001))
-  const tickLower = Math.floor((tick - tickRange) / tickSpacing) * tickSpacing
-  const tickUpper = Math.ceil((tick + tickRange) / tickSpacing) * tickSpacing
-  return {
-    tickLower: Math.max(MIN_TICK, tickLower),
-    tickUpper: Math.min(MAX_TICK, tickUpper),
+//格式化价格字符串，去掉末尾的0
+const formatPriceForParse = (price: number, decimals: number) => {
+  if (!Number.isFinite(price) || price <= 0) {
+    throw new Error("价格必须大于 0");
   }
-}
+  const digits = Math.min(Math.max(decimals, 0), 18);
+  return price.toFixed(digits).replace(/\.?0+$/, "") || "0";
+};
+// 将价格转换成sqrtPriceX96
+const priceToSqrtRatio = (price: number, decimals0: number, decimals1: number) => {
+  // 1. 把 1 个 token0 转换成最小单位
+  const amount0 = parseUnits("1", decimals0);
+  // 2. 把价格转换成 token1 的数量，再转为最小单位
+  const amount1 = parseUnits(formatPriceForParse(price, decimals1), decimals1);
+  // 3. 计算 sqrtPriceX96 = sqrt(amount1 / amount0) * 2^96
+  return encodeSqrtRatioX96(amount1.toString(), amount0.toString());
+};
+//将价格转换成sqrtPriceX96
+const priceToSqrtPriceX96 = (price: number, decimals0: number, decimals1: number) => {
+  return BigInt(priceToSqrtRatio(price, decimals0, decimals1).toString());
+};
+//将价格转换成tick，并确保tick在范围内
+const priceToTick = (price: number, decimals0: number, decimals1: number, fee: number) => {
+  const tick = TickMath.getTickAtSqrtRatio(priceToSqrtRatio(price, decimals0, decimals1));
+  const usable = nearestUsableTick(tick, getTickSpacing(fee));
+  return Math.max(MIN_TICK, Math.min(MAX_TICK, usable));
+};
 
 type AddPoolDialogProps = {
   open: boolean;
@@ -96,7 +118,7 @@ export default function AddPoolDialog({
       token0: "",
       token1: "",
       fee: 3000,
-      price: "",
+      price: "3000",
       tickLower: "",
       tickUpper: "",
     },
@@ -127,9 +149,23 @@ export default function AddPoolDialog({
     setHash(undefined);
     reset();
   }, [open, reset]);
+
+  const token0Watch = form.watch("token0");
+  const token1Watch = form.watch("token1");
+  const decimalsReady = isAddress(token0Watch) && isAddress(token1Watch);
+  const tokenDecimals = useReadContracts({
+    contracts: decimalsReady
+      ? [
+          { address: getAddress(token0Watch), abi: erc20Abi, functionName: "decimals" },
+          { address: getAddress(token1Watch), abi: erc20Abi, functionName: "decimals" },
+        ]
+      : [],
+    query: { enabled: decimalsReady },
+  });
+  const formDecimals0 = tokenDecimals.data?.[0]?.result == null ? undefined : Number(tokenDecimals.data[0].result);
+  const formDecimals1 = tokenDecimals.data?.[1]?.result == null ? undefined : Number(tokenDecimals.data[1].result);
   //点击提交交易
   const onSubmit = async (values: FormValues) => {
-    console.log("values", values);
     if (!address) {
       alert("请先连接钱包");
       return;
@@ -140,42 +176,45 @@ export default function AddPoolDialog({
     }
 
     try {
-      //格式转换，去掉首尾空格，转换为大小写地址
+      //格式转换，去掉首尾空格
       const address0 = getAddress(values.token0.trim()) as Address;
       const address1 = getAddress(values.token1.trim()) as Address;
-      if (address0.toLowerCase() === address1.toLowerCase()) {
-        alert("两个代币地址不能相同");
+      if (formDecimals0 == null || formDecimals1 == null) {
+        alert("正在读取代币精度，请稍后再试");
         return;
       }
-      //两个地址比较，小的那个给token0，大的那个给token1，并计算价格
       let token0 = address0;
       let token1 = address1;
       let price = Number(values.price);
+      let lowerPrice = Number(values.tickLower);
+      let upperPrice = Number(values.tickUpper);
+      let decimals0 = formDecimals0;
+      let decimals1 = formDecimals1;
       if (address0.toLowerCase() > address1.toLowerCase()) {
         token0 = address1;
         token1 = address0;
+        decimals0 = formDecimals1;
+        decimals1 = formDecimals0;
         price = 1 / price;
+        const nextLower = 1 / upperPrice;
+        const nextUpper = 1 / lowerPrice;
+        lowerPrice = nextLower;
+        upperPrice = nextUpper;
       }
-      const customLower = values.tickLower?.trim();
-      const customUpper = values.tickUpper?.trim();
-      const ticks = customLower && customUpper ? {
-        tickLower: Number(customLower),
-        tickUpper: Number(customUpper),
-      }
-        : calculateTicks(price, values.fee);
+      const tickLower = priceToTick(lowerPrice, decimals0, decimals1, values.fee);
+      const tickUpper = priceToTick(upperPrice, decimals0, decimals1, values.fee);
+      // if (tickLower >= tickUpper) {
+      //   alert("价格上限必须大于下限");
+      //   return;
+      // }
 
-      if (ticks.tickLower >= ticks.tickUpper) {
-        alert("Tick 上限必须大于下限");
-        return;
-      }
-      const tick = Math.floor(Math.log(price) / Math.log(1.0001));
       const params = {
         token0,
         token1,
         fee: values.fee,
-        tickLower: ticks.tickLower,
-        tickUpper: ticks.tickUpper,
-        sqrtPriceX96: BigInt(TickMath.getSqrtRatioAtTick(tick).toString())
+        tickLower,
+        tickUpper,
+        sqrtPriceX96: priceToSqrtPriceX96(price, decimals0, decimals1),
       };
 
       const txHash = await writeContractAsync({
@@ -206,7 +245,7 @@ export default function AddPoolDialog({
               name="token0"
               render={({ field }: { field: ControllerRenderProps<FormValues, "token0"> }) => (
                 <FormItem>
-                  <FormLabel>代币 0 地址</FormLabel>
+                  <FormLabel>token0</FormLabel>
                   <FormControl>
                     <Input
                       placeholder="0x..."
@@ -214,9 +253,6 @@ export default function AddPoolDialog({
                       disabled={busy}
                     />
                   </FormControl>
-                  <FormDescription>
-                    第一个代币的合约地址（按地址排序后较小的那个）
-                  </FormDescription>
                   <FormMessage />
                 </FormItem>
               )}
@@ -228,7 +264,7 @@ export default function AddPoolDialog({
               name="token1"
               render={({ field }: { field: ControllerRenderProps<FormValues, "token1"> }) => (
                 <FormItem>
-                  <FormLabel>代币 1 地址</FormLabel>
+                  <FormLabel>token1</FormLabel>
                   <FormControl>
                     <Input
                       placeholder="0x..."
@@ -236,9 +272,6 @@ export default function AddPoolDialog({
                       disabled={busy}
                     />
                   </FormControl>
-                  <FormDescription>
-                    第二个代币的合约地址（按地址排序后较大的那个）
-                  </FormDescription>
                   <FormMessage />
                 </FormItem>
               )}
@@ -250,7 +283,7 @@ export default function AddPoolDialog({
               name="fee"
               render={({ field }: { field: ControllerRenderProps<FormValues, "fee"> }) => (
                 <FormItem>
-                  <FormLabel>费率</FormLabel>
+                  <FormLabel>fee</FormLabel>
                   <Select
                     onValueChange={(val) => field.onChange(Number(val))}
                     value={field.value?.toString()}
@@ -258,7 +291,7 @@ export default function AddPoolDialog({
                   >
                     <FormControl>
                       <SelectTrigger>
-                        <SelectValue placeholder="选择费率" />
+                        <SelectValue placeholder="choose fee" />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
@@ -283,11 +316,15 @@ export default function AddPoolDialog({
               name="price"
               render={({ field }: { field: ControllerRenderProps<FormValues, "price"> }) => (
                 <FormItem>
-                  <FormLabel>初始价格</FormLabel>
+                  <FormLabel>Current price</FormLabel>
                   <FormControl>
                     <Input
                       placeholder="例如: 3000 (1 token0 = 3000 token1)"
-                      {...field}
+                      name={field.name}
+                      value={field.value ?? ""}
+                      onChange={field.onChange}
+                      onBlur={field.onBlur}
+                      ref={field.ref}
                       disabled={busy}
                     />
                   </FormControl>
@@ -300,46 +337,48 @@ export default function AddPoolDialog({
             />
 
             {/* 高级选项：自定义 Tick 范围 */}
-            <div className="border rounded-lg p-4 bg-muted/50">
-              <h4 className="text-sm font-medium mb-2">高级选项（可选）</h4>
-              <div className="grid grid-cols-2 gap-4">
-                <FormField
-                  control={form.control}
-                  name="tickLower"
-                  render={({ field }: { field: ControllerRenderProps<FormValues, "tickLower"> }) => (
-                    <FormItem>
-                      <FormLabel>Tick 下限</FormLabel>
-                      <FormControl>
-                        <Input
-                          placeholder="自动计算"
-                          {...field}
-                          disabled={busy}
-                        />
-                      </FormControl>
-                      <FormDescription>默认 -887272</FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="tickUpper"
-                  render={({ field }: { field: ControllerRenderProps<FormValues, "tickUpper"> }) => (
-                    <FormItem>
-                      <FormLabel>Tick 上限</FormLabel>
-                      <FormControl>
-                        <Input
-                          placeholder="自动计算"
-                          {...field}
-                          disabled={busy}
-                        />
-                      </FormControl>
-                      <FormDescription>默认 887272</FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
+            <div className="text-sm font-medium mb-2">Set price range</div>
+            <div className="grid grid-cols-2 gap-4">
+              <FormField
+                control={form.control}
+                name="tickLower"
+                render={({ field }: { field: ControllerRenderProps<FormValues, "tickLower"> }) => (
+                  <FormItem>
+                    <FormControl>
+                      <Input
+                        placeholder="Low price"
+                        name={field.name}
+                        ref={field.ref}
+                        onBlur={field.onBlur}
+                        value={field.value ?? ""}
+                        onChange={field.onChange}
+                        disabled={busy}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="tickUpper"
+                render={({ field }: { field: ControllerRenderProps<FormValues, "tickUpper"> }) => (
+                  <FormItem>
+                    <FormControl>
+                      <Input
+                        placeholder="High price"
+                        name={field.name}
+                        ref={field.ref}
+                        onBlur={field.onBlur}
+                        value={field.value ?? ""}
+                        onChange={field.onChange}
+                        disabled={busy}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
             </div>
 
             {/* 提交按钮 */}

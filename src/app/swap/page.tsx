@@ -9,7 +9,6 @@ import {
 } from "wagmi";
 import { waitForTransactionReceipt } from "wagmi/actions";
 import {
-  type Address,
   erc20Abi,
   formatUnits,
   getAddress,
@@ -62,27 +61,30 @@ const SWAP_TOKENS = [
   },
 ] as const;
 
+//表单验证
 const formSchema = z
   .object({
-    tokenIn: z.string(),
-    tokenOut: z.string(),
-    amountIn: z.string(),
-    amountOut: z.string(),
+    amountIn: z.string()
+    .regex(/^\d*\.?\d*$/, "请输入有效数字")
+    .refine((val) => Number(val) > 0, '代币数量必须大于0'),
+    amountOut: z.string()
+    .regex(/^\d*\.?\d*$/, "请输入有效数字")
+    .refine((val) => Number(val) > 0, '代币数量必须大于0'),
+    tokenIn: z.string().refine((val) => val !== "", '请选择买入代币'),
+    tokenOut: z.string().refine((val) => val !== "", '请选择卖出代币'),
   })
-  .refine((values) => !values.tokenIn || !values.tokenOut || values.tokenIn !== values.tokenOut, {
-    message: "买入和卖出代币不能相同",
-    path: ["tokenOut"],
-  });
-
 type FormValues = z.infer<typeof formSchema>;
 
-const SLIPPAGE_BPS = BigInt(50);
-const DEADLINE_SECONDS = 20 * 60;
-const SWAP_GAS_LIMIT = BigInt(3_000_000);
+const SLIPPAGE_BPS = BigInt(50);//50个基点，0.5%滑点
+const DEADLINE_SECONDS = 20 * 60;//20分钟交易有效期限
+const SWAP_GAS_LIMIT = BigInt(1_000_000);//gas
 
-const findTokenBySymbol = (symbol: string) =>
-  SWAP_TOKENS.find((token) => token.symbol === symbol);
-
+//通过代币符号找到相应的地址
+const getTokenAddressBySymbol = (symbol: string) => {
+  const token = SWAP_TOKENS.find((item) => item.symbol === symbol)
+  return token?.address; // 找不到返回 undefined
+};
+//将代币数量转换成wei
 const parseAmount = (value: string, decimals: number | undefined) => {
   if (decimals == null) return undefined;
   const trimmed = value.trim();
@@ -96,77 +98,89 @@ const parseAmount = (value: string, decimals: number | undefined) => {
 };
 
 export default function SwapPage() {
+  //连接钱包获取地址
   const { data: connectorClient } = useConnectorClient();
   const address = connectorClient?.account.address;
+  //获取pool列表
   const { poolData } = usePoolContract();
+  //询价模式
   const [quoteMode, setQuoteMode] = useState<QuoteMode>("exactIn");
+  //写入合约
   const { writeContractAsync, isPending } = useWriteContract();
+  //交易哈希
   const [hash, setHash] = useState<Hash>();
+  //错误信息
   const [submitError, setSubmitError] = useState<string | null>(null);
+  //等待交易确认
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({
     hash,
     query: { enabled: Boolean(hash) },
   });
-
+  //表单
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      tokenIn: "",
-      tokenOut: "",
       amountIn: "",
       amountOut: "",
+      tokenIn: "",
+      tokenOut: "",
     },
   });
+  //监听表单变化
+  const amountIn = form.watch("amountIn");//代币数量
+  const amountOut = form.watch("amountOut");//代币数量
+  const tokenInSymbol = form.watch("tokenIn");//买入代币符号
+  const tokenOutSymbol = form.watch("tokenOut");//卖出代币符号
 
-  const tokenInSymbol = form.watch("tokenIn");
-  const tokenOutSymbol = form.watch("tokenOut");
-  const amountIn = form.watch("amountIn");
-  const amountOut = form.watch("amountOut");
-
-  const tokenIn = findTokenBySymbol(tokenInSymbol)?.address;
-  const tokenOut = findTokenBySymbol(tokenOutSymbol)?.address;
-
+  const tokenIn = getTokenAddressBySymbol(tokenInSymbol)
+  const tokenOut = getTokenAddressBySymbol(tokenOutSymbol)
+  //读取代币精度
   const tokenDecimals = useReadContracts({
     contracts: tokenIn && tokenOut
       ? [
-          { address: tokenIn, abi: erc20Abi, functionName: "decimals" },
-          { address: tokenOut, abi: erc20Abi, functionName: "decimals" },
-        ]
+        { address: tokenIn, abi: erc20Abi, functionName: "decimals" },
+        { address: tokenOut, abi: erc20Abi, functionName: "decimals" },
+      ]
       : [],
     query: { enabled: Boolean(tokenIn && tokenOut) },
   });
-
+  //读取代币余额，allowance允许额度
   const tokenBalances = useReadContracts({
     contracts: address && tokenIn && tokenOut
       ? [
-          { address: tokenIn, abi: erc20Abi, functionName: "balanceOf", args: [address] },
-          { address: tokenOut, abi: erc20Abi, functionName: "balanceOf", args: [address] },
-          { address: tokenIn, abi: erc20Abi, functionName: "allowance", args: [address, SwapRouterAddress] },
-        ]
+        { address: tokenIn, abi: erc20Abi, functionName: "balanceOf", args: [address] },
+        { address: tokenOut, abi: erc20Abi, functionName: "balanceOf", args: [address] },
+        { address: tokenIn, abi: erc20Abi, functionName: "allowance", args: [address, SwapRouterAddress] },
+      ]
       : [],
     query: { enabled: Boolean(address && tokenIn && tokenOut) },
   });
-
+  //买入代币精度
   const decimalsIn =
     tokenDecimals.data?.[0]?.result == null
       ? undefined
       : Number(tokenDecimals.data[0].result);
+  //卖出代币精度
   const decimalsOut =
     tokenDecimals.data?.[1]?.result == null
       ? undefined
       : Number(tokenDecimals.data[1].result);
+  //买入代币余额
   const balanceInRaw = tokenBalances.data?.[0]?.result;
+  //卖出代币余额
   const balanceOutRaw = tokenBalances.data?.[1]?.result;
+  //买入代币允许额度
   const allowanceIn = tokenBalances.data?.[2]?.result;
-
+  //获取兑换路径
   const swapRoute = useMemo(
     () => getSwapRoute(poolData, tokenIn, tokenOut),
     [poolData, tokenIn, tokenOut],
   );
-
+  console.log('swapRoute====',swapRoute);
+  //将买入卖出代币转换成wei
   const amountInWei = quoteMode === "exactIn" ? parseAmount(amountIn, decimalsIn) : undefined;
   const amountOutWei = quoteMode === "exactOut" ? parseAmount(amountOut, decimalsOut) : undefined;
-
+  //模拟执行合约的写操作
   const { quotedAmountIn, quotedAmountOut, isQuoting, quoteError } = useSwapQuote({
     tokenIn,
     tokenOut,
@@ -177,17 +191,17 @@ export default function SwapPage() {
     mode: quoteMode,
     enabled: Boolean(tokenIn && tokenOut && swapRoute),
   });
-
+  //1、自动填充 amountOut（exactIn 模式）
   useEffect(() => {
     if (quoteMode !== "exactIn" || quotedAmountOut == null || decimalsOut == null) return;
     form.setValue("amountOut", formatUnits(quotedAmountOut, decimalsOut), { shouldValidate: false });
   }, [quoteMode, quotedAmountOut, decimalsOut, form]);
-
+  //2. 自动填充 amountIn（exactOut 模式）
   useEffect(() => {
     if (quoteMode !== "exactOut" || quotedAmountIn == null || decimalsIn == null) return;
     form.setValue("amountIn", formatUnits(quotedAmountIn, decimalsIn), { shouldValidate: false });
   }, [quoteMode, quotedAmountIn, decimalsIn, form]);
-
+  //3、清空 amountIn 或 amountOut 时，自动清空另一个输入框
   useEffect(() => {
     if (quoteMode === "exactIn" && !amountIn.trim()) {
       form.setValue("amountOut", "", { shouldValidate: false });
@@ -199,11 +213,11 @@ export default function SwapPage() {
 
   useEffect(() => {
     if (!isSuccess) return;
-    form.setValue("amountIn", "");
-    form.setValue("amountOut", "");
-    void tokenBalances.refetch();
+    form.setValue("amountIn", "");//输入框清空
+    form.setValue("amountOut", "");//输出框清空
+    void tokenBalances.refetch();//重新读取链上余额
   }, [form, isSuccess, tokenBalances]);
-
+  //授权代币
   const approveIfNeeded = async (amount: bigint) => {
     if (!tokenIn) return;
     if (allowanceIn != null && allowanceIn >= amount) return;
@@ -240,7 +254,7 @@ export default function SwapPage() {
       setSubmitError("正在读取代币精度，请稍后再试");
       return;
     }
-
+    //转成合约需要的格式
     const inAmount = parseAmount(values.amountIn, decimalsIn);
     const outAmount = parseAmount(values.amountOut, decimalsOut);
     if (!inAmount || !outAmount) {
@@ -381,7 +395,7 @@ export default function SwapPage() {
               name="tokenIn"
               render={({ field }: { field: ControllerRenderProps<FormValues, "tokenIn"> }) => (
                 <FormItem className="flex shrink-0 flex-col items-end gap-2">
-                  <Select value={field.value} onValueChange={field.onChange}>
+                  <Select value={field.value} onValueChange={field.onChange} >
                     <FormControl>
                       <SelectTrigger className="h-9 min-w-28 rounded-full border border-[#e5eaf2] bg-white px-3 shadow-none">
                         <SelectValue placeholder="选择代币" />
