@@ -29,7 +29,7 @@ const typeLabel: Record<PoolTransaction["type"], string> = {
   mint: "添加",
   burn: "移除",
 };
-
+console.log('111')
 function formatTime(timestamp: string) {
   const elapsed = Math.max(0, Date.now() - new Date(timestamp).getTime());
   const minutes = Math.floor(elapsed / 60000);
