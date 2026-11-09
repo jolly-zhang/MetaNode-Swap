@@ -219,7 +219,7 @@ export default function UserDataPage() {
       if (typesRef.current.length < TYPE_FILTERS.length) {
         params.set("types", typesRef.current.join(","));
       }
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/logs?${params}`);
+      const res = await fetch('/api/logs?${params}');
       if (!res.ok) {
         throw new Error("请求失败");
       }

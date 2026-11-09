@@ -89,9 +89,7 @@ export default function VolumeChart() {
       setLoading(true);
       setError("");
       try {
-        const res = await fetch(
-          `${process.env.NEXT_PUBLIC_API_URL}/api/logs/volume?range=${range}`
-        );
+        const res = await fetch('/api/logs/volume?range=${range');
         if (!res.ok) throw new Error("交易量加载失败");
         const data = (await res.json()) as VolumeResponse;
         if (!ignore) {
