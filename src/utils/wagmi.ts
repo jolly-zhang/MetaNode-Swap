@@ -18,7 +18,7 @@ declare global {
     mywallet?: EIP1193Provider;
   }
 }
-
+//自定义钱包
 const myWallet = (): Wallet => ({
   id: "mywallet",
   name: "My Wallet",
@@ -45,6 +45,7 @@ const myWallet = (): Wallet => ({
     })),
 });
 
+//wagmi的配置
 export const config = getDefaultConfig({
   appName: "Meta Node Stake",
   ssr: true,

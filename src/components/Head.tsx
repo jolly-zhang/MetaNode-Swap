@@ -13,6 +13,10 @@ export default function Head() {
       name: "Pool",
       href: "/pool",
     },
+    {
+      name: "userData",
+      href: "/userData",
+    },
   ];
   const [account, setAccount] = useState<string>("");
   const connectWallet = async () => {
@@ -64,7 +68,7 @@ export default function Head() {
   return (
     <div className="flex flex-row justify-between items-center p-4 border-b-1 border-b-[#e4eaf3]">
       <h1 className="text-1xl font-bold">MetNodeSwap</h1>
-      <Button onClick={toggleWallet}>{account ? `已连接: ${account.slice(0, 6)}...${account.slice(-4)}` : "连接钱包"}</Button>
+      {/* <Button onClick={toggleWallet}>{account ? `已连接: ${account.slice(0, 6)}...${account.slice(-4)}` : "连接钱包"}</Button> */}
       <div className="flex flex-row gap-10">
         {links.map((link) => (
           <Link key={link.href} href={link.href}>

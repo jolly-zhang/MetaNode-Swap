@@ -41,3 +41,10 @@ export type PoolRow = {
     amount0: bigint;
     amount1: bigint;
   }
+
+ export type Product = {
+    id: string;
+    name: string;
+    price: string | number | null;
+    created_at: string;
+  };
